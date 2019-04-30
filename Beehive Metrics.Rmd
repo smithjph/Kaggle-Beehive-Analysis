@@ -1,0 +1,233 @@
+---
+title: "Beehive Metrics"
+author: "Joel Smith"
+date: "4/30/2019"
+output: rmarkdown::github_document
+---
+
+```{r include=FALSE}
+library(tidyverse)
+```
+
+```{r include=FALSE}
+flow = read_csv("flow_2017.csv")
+
+humidity = read_csv("humidity_2017.csv")
+
+temp = read_csv("temperature_2017.csv")
+
+weight = read_csv("weight_2017.csv")
+```
+
+
+### Check which level the time series are recorded
+
+Flow is at the minute level. However, there are two recordings (often different) of flow for each timestamp. This does not lend itself to time series analysis.
+
+```{r}
+head(flow[order(flow$timestamp),], 10)
+tail(flow[order(flow$timestamp),], 10)
+
+flow[order(flow$timestamp)[260001:260011],]
+```
+
+Humidity is at the hour level.
+
+```{r}
+head(humidity[order(humidity$timestamp),], 10)
+tail(humidity[order(humidity$timestamp),], 10)
+```
+
+
+Temperature is at the hour level or 5-minute increment level. Like flow, temperature also has multiple recordings for temperature at the same timestamp. These values are different enough that an average per timestamp does not make sense.
+
+```{r}
+head(temp[order(temp$timestamp),], 10)
+tail(temp[order(temp$timestamp),], 10)
+```
+
+
+Weight is at the minute level.
+
+```{r}
+head(weight[order(weight$timestamp),], 10)
+tail(weight[order(weight$timestamp),], 10)
+```
+
+
+### Check for missing values
+
+```{r}
+sum(is.na(flow))
+```
+
+```{r}
+sum(is.na(humidity))
+```
+
+```{r}
+sum(is.na(weight))
+```
+
+There are 3 missing values -- each in the temperature column.
+
+```{r}
+sum(is.na(temp))
+
+sum(is.na(temp$timestamp))
+
+sum(is.na(temp$temperature))
+```
+
+Oddly, these are all at the same time. We do not have a temperature for this timestamp, but it is difficult to impute due to the previously mentioned fact of having multiple temperature values at each timestamp.
+
+```{r}
+temp[is.na(temp$temperature),]
+
+temp[temp$timestamp == as.POSIXct("2017-01-01 05:10:00", tz = "UTC"),]
+```
+
+
+### Plot each of the time series
+
+##### Flow
+
+```{r}
+ggplot(flow, aes(timestamp, flow)) +
+  geom_line()
+```
+
+Zoom in on flow to look for hourly patterns.
+
+```{r}
+ggplot(flow %>%
+         filter(between(timestamp, as.POSIXct("2017-06-01 01:00:00"), as.POSIXct("2017-06-05 01:00:00"))),
+       aes(timestamp, flow)) +
+  geom_line()
+```
+
+It appears that flow peaks sometime around mid-afternoon. 
+
+```{r}
+ggplot(flow %>%
+         filter(between(timestamp, as.POSIXct("2017-06-01 01:00:00"), as.POSIXct("2017-06-01 23:00:00"))),
+       aes(timestamp, flow)) +
+  geom_line()
+```
+
+##### Humidity
+
+It looks like we need to remove an outlier.
+
+```{r}
+ggplot(humidity, aes(timestamp, humidity)) +
+  geom_line()
+```
+
+Let's find that outlier...
+
+```{r}
+min(humidity[,2])
+```
+
+...and remove it.
+
+```{r}
+humidity = humidity[-which(humidity$humidity == min(humidity$humidity)),]
+```
+
+Check for another outlier. There is one, so let's remove it.
+
+```{r}
+min(humidity[,2])
+
+humidity = humidity[-which(humidity$humidity == min(humidity$humidity)),]
+```
+
+Check for another outlier. It looks like we are all set.
+
+```{r}
+min(humidity[,2])
+```
+
+Plot humidity again. Looks good.
+
+```{r}
+ggplot(humidity, aes(timestamp, humidity)) +
+  geom_line()
+```
+
+
+##### Temperature
+
+Plot two series of yearly temperature data.
+
+```{r}
+ggplot(temp[1:8737,], aes(timestamp, temperature)) +
+  geom_line()
+
+ggplot(temp[8738:17474,], aes(timestamp, temperature)) +
+  geom_line()
+```
+
+##### Weight
+
+There are a couple of values of 0 for the weight. We should find the values around each of these points and determine how to fill in the zero. However, I am just going to replace with the overall mean.
+
+```{r}
+ggplot(weight, aes(timestamp, weight)) +
+  geom_line()
+```
+
+
+```{r}
+weight$weight = ifelse(weight$weight < 0, mean(weight$weight), weight$weight)
+```
+
+Check the plot.
+
+```{r}
+ggplot(weight, aes(timestamp, weight)) +
+  geom_line()
+```
+
+We should adjust the other low values as well.
+
+```{r}
+weight$weight = ifelse(weight$weight < 20, mean(weight$weight), weight$weight)
+```
+
+Re-check the plot.
+
+```{r}
+ggplot(weight, aes(timestamp, weight)) +
+  geom_line()
+```
+
+Fix the two lowest points.
+
+```{r}
+weight$weight = ifelse(weight$weight < 40, mean(weight$weight), weight$weight)
+```
+
+Re-check the plot again.
+
+```{r}
+ggplot(weight, aes(timestamp, weight)) +
+  geom_line()
+```
+
+Fix the low point around October.
+
+```{r}
+weight$weight = ifelse(weight$weight == min(weight$weight), mean(weight$weight), weight$weight)
+```
+
+Re-check the plot again.
+
+```{r}
+ggplot(weight, aes(timestamp, weight)) +
+  geom_line()
+```
+
+This is a slow process, there is likely a much better way to deal with this.
